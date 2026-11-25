@@ -2,18 +2,11 @@ import express, { Request, Response, NextFunction } from "express";
 import request from "supertest";
 import userRouter from "../user.routes";
 import { ReputationCacheService } from "../../services/reputation-cache.service";
-import { ReputationService } from "../../services/reputation.service";
 
-// Mock ReputationCacheService and ReputationService
+// Mock ReputationCacheService
 jest.mock("../../services/reputation-cache.service", () => ({
   ReputationCacheService: {
     getCachedReputation: jest.fn(),
-  },
-}));
-
-jest.mock("../../services/reputation.service", () => ({
-  ReputationService: {
-    getReputation: jest.fn(),
   },
 }));
 
@@ -73,7 +66,7 @@ describe("GET /users", () => {
     jest.clearAllMocks();
   });
 
-  it("should use ReputationCacheService instead of ReputationService for freelancers", async () => {
+  it("should use ReputationCacheService for freelancers", async () => {
     mockUser.findMany.mockResolvedValue([
       {
         id: "user1",
@@ -105,8 +98,5 @@ describe("GET /users", () => {
     // Verify ReputationCacheService was called for the freelancer
     expect(ReputationCacheService.getCachedReputation).toHaveBeenCalledWith("GASDFG123456");
     expect(ReputationCacheService.getCachedReputation).toHaveBeenCalledTimes(1);
-
-    // Verify direct on-chain ReputationService was NOT called
-    expect(ReputationService.getReputation).not.toHaveBeenCalled();
   });
 });

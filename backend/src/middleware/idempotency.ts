@@ -28,22 +28,38 @@ export function idempotency(options: { ttl?: number } = {}) {
       }
       const redis = RedisClient.getInstance();
 
-      const existing = await redis.get(redisKey);
-      if (existing) {
-        const parsed = JSON.parse(existing);
-        if (parsed.status === "in_flight") {
-          res.status(409).json({
-            code: "CONFLICT",
-            error: "Request is already being processed.",
-            requestId: req.requestId,
-          });
+      // Atomically check-and-mark in-flight in a single Redis command
+      const acquired = await redis.set(
+        redisKey,
+        JSON.stringify({ status: "in_flight" }),
+        "EX",
+        IN_FLIGHT_TTL,
+        "NX"
+      );
+
+      if (!acquired) {
+        const existing = await redis.get(redisKey);
+        if (existing) {
+          const parsed = JSON.parse(existing);
+          if (parsed.status === "in_flight") {
+            res.status(409).json({
+              code: "CONFLICT",
+              error: "Request is already being processed.",
+              requestId: req.requestId,
+            });
+            return;
+          }
+          res.status(200).json(parsed.response);
           return;
         }
-        res.status(200).json(parsed.response);
+
+        res.status(409).json({
+          code: "CONFLICT",
+          error: "Request is already being processed.",
+          requestId: req.requestId,
+        });
         return;
       }
-
-      await redis.setex(redisKey, IN_FLIGHT_TTL, JSON.stringify({ status: "in_flight" }));
 
       const originalJson = res.json.bind(res);
       res.json = function (body: unknown) {

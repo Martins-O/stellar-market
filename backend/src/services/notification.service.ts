@@ -453,14 +453,16 @@ export class NotificationService {
     page: number = 1,
     limit: number = 20,
   ) {
-    const skip = (page - 1) * limit;
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.min(Math.max(1, limit), 100);
+    const skip = (safePage - 1) * safeLimit;
 
     const [notifications, total] = await Promise.all([
       prisma.notification.findMany({
         where: { userId },
         orderBy: { createdAt: "desc" },
         skip,
-        take: limit,
+        take: safeLimit,
       }),
       prisma.notification.count({ where: { userId } }),
     ]);
@@ -469,9 +471,9 @@ export class NotificationService {
       data: notifications,
       meta: {
         total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
       },
     };
   }

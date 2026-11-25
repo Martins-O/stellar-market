@@ -399,7 +399,7 @@ export class DisputeService {
     cursor?: string,
     limit: number = 20,
   ) {
-    const safeLimit = Math.min(limit, 100);
+    const safeLimit = Math.min(Math.max(1, limit), 100);
 
     const votes = await prisma.disputeVote.findMany({
       where: { disputeId },
@@ -441,7 +441,10 @@ export class DisputeService {
     sortBy: "recent" | "oldest" = "recent",
     pagination: { page: number; limit: number } = { page: 1, limit: 20 },
   ) {
-    const { page, limit } = pagination;
+    const rawPage = pagination?.page ?? 1;
+    const rawLimit = pagination?.limit ?? 20;
+    const page = Math.max(1, rawPage);
+    const limit = Math.min(Math.max(1, rawLimit), 100);
     const skip = (page - 1) * limit;
 
     // Build where clause based on filter
@@ -534,7 +537,10 @@ export class DisputeService {
     pagination: { page: number; limit: number },
   ) {
     const { status, userFilter } = filters;
-    const { page, limit } = pagination;
+    const rawPage = pagination?.page ?? 1;
+    const rawLimit = pagination?.limit ?? 20;
+    const page = Math.max(1, rawPage);
+    const limit = Math.min(Math.max(1, rawLimit), 100);
     const skip = (page - 1) * limit;
 
     const where = { ...(status ? { status } : {}), ...userFilter };

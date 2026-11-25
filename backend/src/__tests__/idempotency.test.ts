@@ -13,6 +13,7 @@ describe("Idempotency Middleware", () => {
   let app: express.Application;
   let mockRedis: {
     get: jest.Mock;
+    set: jest.Mock;
     setex: jest.Mock;
     del: jest.Mock;
   };
@@ -20,6 +21,7 @@ describe("Idempotency Middleware", () => {
   beforeEach(() => {
     mockRedis = {
       get: jest.fn(),
+      set: jest.fn().mockResolvedValue("OK"),
       setex: jest.fn().mockResolvedValue("OK"),
       del: jest.fn().mockResolvedValue(1),
     };
@@ -73,11 +75,13 @@ describe("Idempotency Middleware", () => {
       expect(response1.status).toBe(400);
       expect(response1.body).toEqual({ error: "Bad request" });
 
-      // Verify in-flight was set
-      expect(mockRedis.setex).toHaveBeenCalledWith(
+      // Verify in-flight was atomically set
+      expect(mockRedis.set).toHaveBeenCalledWith(
         expect.stringContaining(key),
+        expect.stringContaining("in_flight"),
+        "EX",
         30,
-        expect.stringContaining("in_flight")
+        "NX"
       );
 
       // Verify error was NOT cached (del was called instead)
@@ -243,7 +247,8 @@ describe("Idempotency Middleware", () => {
         }
       );
 
-      // Mock Redis to return in-flight status
+      // Mock Redis atomic set to fail (NX condition fails) and get to return in-flight status
+      mockRedis.set.mockResolvedValue(null);
       mockRedis.get.mockResolvedValue(JSON.stringify({ status: "in_flight" }));
       const key = "in-flight-key";
 
@@ -272,6 +277,7 @@ describe("Idempotency Middleware", () => {
         status: "completed",
         response: { success: true, value: "original" },
       };
+      mockRedis.set.mockResolvedValue(null);
       mockRedis.get.mockResolvedValue(JSON.stringify(cachedResponse));
 
       const key = "cached-key";
@@ -286,6 +292,74 @@ describe("Idempotency Middleware", () => {
 
       // Handler should not have been called (no new setex for completed)
       expect(mockRedis.setex).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Concurrent Requests Race Condition", () => {
+    it("should allow only one of two concurrent requests with the same key to proceed", async () => {
+      let handlerExecutionCount = 0;
+      app.post(
+        "/test/concurrent",
+        idempotency(),
+        async (_req: Request, res: Response) => {
+          handlerExecutionCount++;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          res.status(200).json({ success: true, count: handlerExecutionCount });
+        }
+      );
+
+      // Simulate atomic Redis SET NX EX behavior using an in-memory key-value store
+      const store = new Map<string, string>();
+      mockRedis.set.mockImplementation(async (key: string, val: string, ...args: unknown[]) => {
+        const isNx = args.includes("NX");
+        if (isNx && store.has(key)) {
+          return null;
+        }
+        store.set(key, val);
+        return "OK";
+      });
+      mockRedis.get.mockImplementation(async (key: string) => store.get(key) || null);
+      mockRedis.setex.mockImplementation(async (key: string, _ttl: number, val: string) => {
+        store.set(key, val);
+        return "OK";
+      });
+      mockRedis.del.mockImplementation(async (key: string) => {
+        store.delete(key);
+        return 1;
+      });
+
+      const key = "concurrent-race-key";
+
+      // Fire two concurrent requests with identical Idempotency-Key
+      const [response1, response2] = await Promise.all([
+        request(app)
+          .post("/test/concurrent")
+          .set("Idempotency-Key", key)
+          .send({}),
+        request(app)
+          .post("/test/concurrent")
+          .set("Idempotency-Key", key)
+          .send({}),
+      ]);
+
+      const statuses = [response1.status, response2.status].sort();
+      expect(statuses).toEqual([200, 409]);
+      expect(handlerExecutionCount).toBe(1);
+
+      const conflictResponse = response1.status === 409 ? response1 : response2;
+      expect(conflictResponse.body).toEqual({
+        code: "CONFLICT",
+        error: "Request is already being processed.",
+        requestId: "test-request-id",
+      });
+
+      expect(mockRedis.set).toHaveBeenCalledWith(
+        expect.stringContaining(key),
+        expect.stringContaining("in_flight"),
+        "EX",
+        30,
+        "NX"
+      );
     });
   });
 });

@@ -264,4 +264,30 @@ describe("EvidenceUpload component", () => {
       { timeout: 10000 },
     );
   });
+
+  it("enforces MAX_FILES cap even when some files in the batch are rejected", async () => {
+    const utils = render(<EvidenceUpload disputeId="dispute-1" />);
+    // MAX_FILES is 5. Provide 1 invalid file (unsupported type) and 6 valid files.
+    const invalidFile = makeFile("bad.exe", 100, "application/x-msdownload");
+    const validFiles = Array.from({ length: 6 }, (_, i) =>
+      makeFile(`valid${i}.pdf`, 100, "application/pdf"),
+    );
+    await selectFiles(utils, [invalidFile, ...validFiles]);
+
+    expect(
+      screen.getByText(/You may attach up to 5 files\./i),
+    ).toBeInTheDocument();
+  });
+
+  it("shows per-file rejection message and attaches valid files when under MAX_FILES cap", async () => {
+    const utils = render(<EvidenceUpload disputeId="dispute-1" />);
+    const invalidFile = makeFile("bad.exe", 100, "application/x-msdownload");
+    const validFile = makeFile("valid.pdf", 100, "application/pdf");
+    await selectFiles(utils, [invalidFile, validFile]);
+
+    expect(
+      screen.getByText(/"bad\.exe" is not a supported evidence type/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("valid.pdf")).toBeInTheDocument();
+  });
 });

@@ -125,21 +125,18 @@ export default function EvidenceUpload({
 
     const nextSelected = new Map(selectedFiles);
     const nextStates: FileUploadState[] = [...files];
-    let rejected = false;
 
     for (const file of incoming) {
       if (file.size > MAX_FILE_SIZE_BYTES) {
         setFileError(
           `"${file.name}" exceeds the ${MAX_FILE_SIZE_MB} MB limit.`,
         );
-        rejected = true;
         continue;
       }
       if (!ACCEPTED_EVIDENCE_MIME_TYPES.includes(file.type)) {
         setFileError(
           `"${file.name}" is not a supported evidence type. Please attach images, PDFs, or videos.`,
         );
-        rejected = true;
         continue;
       }
       const id = newFileId();
@@ -147,7 +144,7 @@ export default function EvidenceUpload({
       nextStates.push(initState(id, file));
     }
 
-    if (!rejected && nextStates.length > MAX_FILES) {
+    if (nextStates.length > MAX_FILES) {
       setFileError(`You may attach up to ${MAX_FILES} files.`);
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;

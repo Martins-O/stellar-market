@@ -52,7 +52,7 @@ export default function NotificationsPage() {
         );
         setNotifications(res.data.data);
         setTotal(res.data.total);
-        if (res.data.data.some((n) => !n.read)) setHasUnread(true);
+        setHasUnread(res.data.data.some((n) => !n.read));
       } catch (error) {
         console.error("Failed to fetch notifications:", error);
       } finally {
@@ -85,11 +85,13 @@ export default function NotificationsPage() {
             headers: { Authorization: `Bearer ${token}` },
           },
         );
-        setNotifications((prev) =>
-          prev.map((n) =>
+        setNotifications((prev) => {
+          const updated = prev.map((n) =>
             n.id === notification.id ? { ...n, read: true } : n,
-          ),
-        );
+          );
+          if (!updated.some((n) => !n.read)) setHasUnread(false);
+          return updated;
+        });
       } catch (error) {
         // Allow retry on failure
         markedRef.current.delete(notification.id);
@@ -155,6 +157,7 @@ export default function NotificationsPage() {
         },
       );
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      setHasUnread(false);
     } catch (error) {
       console.error("Failed to mark all as read:", error);
     } finally {
@@ -168,7 +171,11 @@ export default function NotificationsPage() {
       await axios.delete(`${API}/notifications/${notificationId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
+      setNotifications((prev) => {
+        const updated = prev.filter((n) => n.id !== notificationId);
+        if (!updated.some((n) => !n.read)) setHasUnread(false);
+        return updated;
+      });
       dismissLiveNotification(notificationId);
       setTotal((t) => Math.max(0, t - 1));
     } catch (error) {

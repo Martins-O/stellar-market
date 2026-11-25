@@ -35,6 +35,7 @@ export function usePendingTransaction(txHash: string | null): PendingTransaction
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const reqSeqRef = useRef<number>(0);
 
   const stopPolling = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -53,6 +54,7 @@ export function usePendingTransaction(txHash: string | null): PendingTransaction
     setState({ status: "PENDING", ledger: null, canRetry: false, isLoading: true, error: null });
 
     const check = async () => {
+      const seq = ++reqSeqRef.current;
       const controller = new AbortController();
       abortRef.current = controller;
 
@@ -61,6 +63,8 @@ export function usePendingTransaction(txHash: string | null): PendingTransaction
           signal: controller.signal,
           credentials: "include",
         });
+
+        if (seq !== reqSeqRef.current) return;
 
         if (!res.ok) {
           // Non-fatal — keep polling
@@ -72,6 +76,8 @@ export function usePendingTransaction(txHash: string | null): PendingTransaction
           ledger?: number;
           canRetry?: boolean;
         } = await res.json();
+
+        if (seq !== reqSeqRef.current) return;
 
         setState({
           status: data.status,
@@ -95,6 +101,7 @@ export function usePendingTransaction(txHash: string | null): PendingTransaction
     intervalRef.current = setInterval(check, POLL_INTERVAL_MS);
 
     return () => {
+      reqSeqRef.current++;
       stopPolling();
     };
   }, [txHash, stopPolling]);
